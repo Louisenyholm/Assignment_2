@@ -1,0 +1,496 @@
+---
+title: "Computational Modeling - Assignment 2"
+author: "Riccardo Fusaroli"
+date: "29/01/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+p_load(tidyverse)
+```
+
+## In this assignment we learn how to assess rates from a binomial distribution, using the case of assessing your teachers' knowledge of CogSci
+
+N.B. there is a second part at the bottom for next week.
+
+### First part
+
+You want to assess your teachers' knowledge of cognitive science. "These guys are a bunch of drama(turgist) queens, mindless philosophers, chattering communication people and Russian spies. Do they really know CogSci?", you think.
+
+To keep things simple (your teachers should not be faced with too complicated things):
+- You created a pool of equally challenging questions on CogSci
+- Each question can be answered correctly or not (we don't allow partially correct answers, to make our life simpler).
+- Knowledge of CogSci can be measured on a scale from 0 (negative knowledge, all answers wrong) through 0.5 (random chance) to 1 (awesome CogSci superpowers)
+
+This is the data:
+- Riccardo: 3 correct answers out of 6 questions
+- Kristian: 2 correct answers out of 2 questions (then he gets bored)
+- Josh: 160 correct answers out of 198 questions (Josh never gets bored)
+- Mikkel: 66 correct answers out of 132 questions
+```{r}
+# Putting the data into a tibble
+d <- tibble(
+  teacher = c("R","K","J","M"),
+  correct = c(3,2,160,66),
+  questions = c(6,2,198,132)
+  )
+```
+
+Questions:
+
+1. What's Riccardo's estimated knowledge of CogSci? What is the probability he knows more than chance (0.5) [try figuring this out. if you can't peek into chapters 3.1 and 3.2 and/or the slides]?
+- First implement a grid approximation (hint check paragraph 2.4.1!) with a uniform prior, calculate the posterior and plot the results
+```{r}
+# Making a function which calculates the posterior with uniform prior
+calc_post <- function(correct, questions){
+  p_grid <- seq(from = 0, to = 1, length.out = 1000) # Defining grid
+  bin_size <- abs(p_grid[1] - p_grid[2]) # Calculating bin size in grid
+  prior <- rep(1, 1000) # Uniform prior
+  likelihood <- dbinom(correct, size = questions, prob = p_grid) # Computing likelihood
+  unstd_posterior <- likelihood * prior # Computing unstandardised posterior
+  posterior <- unstd_posterior / sum(unstd_posterior * bin_size) # Standardising posterior
+  return(list(posterior = posterior, # Returning these values as lists
+              likelihood = likelihood,
+              prior = prior,
+              p_grid = p_grid))
+}
+
+# OUTPUT AS TIBBLE
+calc_post <- function(correct, questions){
+  p_grid <- seq(from = 0, to = 1, length.out = 1000) # Defining grid
+  prior = rep(1, 1000) # Uniform prior
+  bin_size <- abs(p_grid[1] - p_grid[2]) # Calculating bin size in grid
+  likelihood <- dbinom(correct, size = questions, prob = p_grid) # Computing likelihood
+  unstd_posterior <- likelihood * prior # Computing unstandardised posterior
+  posterior <- unstd_posterior / sum(unstd_posterior * bin_size) # Standardising posterior
+  return(tibble(posterior = posterior, # Returning these values as tibble
+              likelihood = likelihood,
+              prior = prior,
+              p_grid = p_grid))
+}
+
+# Applying the function to Riccardo (Posterior, likelihood, grid)
+R <- calc_post(d$correct[d$teacher == "R"], d$questions[d$teacher == "R"])
+
+# Making a function which plots the results
+plot_results <- function(p_grid, prior, likelihood, posterior, title = " "){
+  # Defining data
+  data <- tibble(p_grid = p_grid,
+                 prior = prior,
+                 likelihood = likelihood,
+                 posterior = posterior) # Data together in order to use it in the plot
+  # Making into long format
+  data <- data %>% 
+    pivot_longer(cols = c("prior", "likelihood", "posterior"), names_to = "name", values_to = "value")
+  # Plotting
+  p <- ggplot(data, aes(x = p_grid, y = value, color = name)) + 
+    geom_line() + 
+    labs(x = "x", y = "Density", title = title) + 
+    theme_bw() + 
+    ggplot2::theme(panel.background = element_rect(fill = "white"),
+                  panel.border = element_blank()) +
+    scale_colour_brewer(palette = "Dark2", direction = 1)
+  return(p)
+}
+
+# Using the function to plot the results
+plot_results(p_grid = R$p_grid,
+             prior = R$prior,
+             likelihood = R$likelihood,
+             posterior = R$posterior,
+             title = "Riccardo")
+
+# Calculating the probability that Riccardo knows more than chance (0.5)
+sum(R$posterior[R$p_grid > 0.5])
+# 499.5/1000 = 49.95 %
+
+```
+Thus, Riccardo's estimated knowledge of cogsci is around 0.5 (on a scale from 0 to 1). The probability that he knows more than chance is 0.5.
+
+
+- Then implement a quadratic approximation (hint check paragraph 2.4.2!).
+```{r}
+# Loading packages
+library(rethinking)
+
+# Computing the quadratic approximation to Riccardo's CogSci knowledge
+R_qa <- map(
+  alist(
+    r ~ dbinom(6, p), # Binomial likelihood, total of questions
+    p ~ dunif(0, 1) # Uniform prior
+  ),
+  data = list (r = 3) # The count of right answers
+)
+
+# Displaying summary of quadratic approximation
+precis(R_qa)
+# MAP (Maximum a Posteriori) value of 0,5 (peak of the posterior distribution)
+# SD of 0.2 (SD of the posterior distribution)
+# 89% percentile interval:0.17-0.83
+# Assuming the posterior is Gaussian, it is maximised at 0.5, and its standard deviation is 0.2.
+```
+
+- N.B. for the rest of the exercise just keep using the grid approximation (we'll move to quadratic approximations in two classes)
+
+2. Estimate all the teachers' knowledge of CogSci. Who's best? Use grid approximation. Comment on the posteriors of Riccardo and Mikkel.
+2a. Produce plots of the prior, and posterior for each teacher.
+```{r}
+# Calculating posteriors (etc.) using the function from before (thus, the same prior and grid also)
+R <- calc_post(d$correct[d$teacher == "R"], d$questions[d$teacher == "R"])
+K <- calc_post(d$correct[d$teacher == "K"], d$questions[d$teacher == "K"])
+J <- calc_post(d$correct[d$teacher == "J"], d$questions[d$teacher == "J"])
+M <- calc_post(d$correct[d$teacher == "M"], d$questions[d$teacher == "M"])
+
+# Looking at the max values of the teachers' posterior distributions
+which.max(R$posterior)/1000*100 # 50%
+which.max(K$posterior)/1000*100 # 100%
+which.max(J$posterior)/1000*100 # 80.8%
+which.max(M$posterior)/1000*100 # 50%
+
+# Plotting the prior, likelihood and posterior
+plot_results(R$p_grid, R$prior, R$likelihood, R$posterior, "Riccardo")
+plot_results(K$p_grid, K$prior, K$likelihood, K$posterior, "Kristian")
+plot_results(J$p_grid, J$prior, J$likelihood, J$posterior, "Josh")
+plot_results(M$p_grid, M$prior, M$likelihood, M$posterior, "Mikkel")
+
+# Calculating chance of knowing more than 0.75 for Josh and Kristian
+sum(J$posterior[J$p_grid > 0.75])/1000*100 # 96.84 %
+sum(K$posterior[K$p_grid > 0.75])/1000*100 # 57.78 %
+```
+On the surface, it seems like Kristian has the best knowledge of Cogsci, as the most likely amount of knowledge according to his posterior is 1 (on a scale from 0 to 1). However, this is based on very few observations and seems to have a lot of uncertainty related to it. Whereas the posterior of Josh is much more precise (narrow) and is therefore more certain - and still high.
+When comparing Riccardo and Mikkel, they are estimated to have the same amount of CogSci knowledge. However, the posterior distribution of Mikkel is much more narrow - and thus precise - than Riccardo's (reflecting the amount of data from which it is calculated).
+
+
+3. Change the prior. Given your teachers have all CogSci jobs, you should start with a higher appreciation of their knowledge: the prior is a normal distribution with a mean of 0.8 and a standard deviation of 0.2. Do the results change (and if so how)?
+3a. Produce plots of the prior and posterior for each teacher.
+```{r}
+# Making the function work with a gaussian prior
+gaus_calc_post <- function(correct, questions, mean, sd){
+  p_grid <- seq(from = 0, to = 1, length.out = 1000) # Defining grid
+  prior = dnorm(p_grid , mean, sd) # Gaussian prior
+  bin_size <- abs(p_grid[1] - p_grid[2]) # Calculating bin size in grid
+  likelihood <- dbinom(correct, size = questions, prob = p_grid) # Computing likelihood
+  unstd_posterior <- likelihood * prior # Computing unstandardised posterior
+  posterior <- unstd_posterior / sum(unstd_posterior * bin_size) # Standardising posterior
+  return(tibble(posterior = posterior, # Returning these values as tibble
+              likelihood = likelihood,
+              prior = prior,
+              p_grid = p_grid))
+}
+
+# Computing the posteriors
+R <- gaus_calc_post(d$correct[d$teacher == "R"], d$questions[d$teacher == "R"], 0.8, 0.2)
+K <- gaus_calc_post(d$correct[d$teacher == "K"], d$questions[d$teacher == "K"], 0.8, 0.2)
+J <- gaus_calc_post(d$correct[d$teacher == "J"], d$questions[d$teacher == "J"], 0.8, 0.2)
+M <- gaus_calc_post(d$correct[d$teacher == "M"], d$questions[d$teacher == "M"], 0.8, 0.2)
+
+# Looking at the max values of the teachers' posterior distributions.
+which.max(R$posterior)/1000*100 # 64.7%
+which.max(K$posterior)/1000*100 # 89%
+which.max(J$posterior)/1000*100 # 80.8%
+which.max(M$posterior)/1000*100 # 51.4%
+
+# Plotting the results
+plot_results(R$p_grid, R$prior, R$likelihood, R$posterior, "Riccardo")
+plot_results(K$p_grid, K$prior, K$likelihood, K$posterior, "Kristian")
+plot_results(J$p_grid, J$prior, J$likelihood, J$posterior, "Josh")
+plot_results(M$p_grid, M$prior, M$likelihood, M$posterior, "Mikkel")
+
+```
+The results have changed, since we use an informed prior (M = 0.8, SD = 0.2). The ones which were just around chance before, are now a bit higher and thus closer to the new prior (Riccardo and Mikkel), while the chance of having a complete knowledge (Kristian) is now modulated and reduced based on the prior. For Josh, this new informed prior does not change much, since it reflects his own posterior distribution from before, and does thus not add new information as so.
+
+
+4. You go back to your teachers and collect more data (multiply the previous numbers by 100). Calculate their knowledge with both a uniform prior and a normal prior with a mean of 0.8 and a standard deviation of 0.2. Do you still see a difference between the results? Why?
+```{r}
+# New data
+d_new <- tibble(
+  teacher = c("R","K","J","M"),
+  correct = c(300,200,16000,6600),
+  questions = c(600,200,19800,13200)
+  )
+
+# Computing posteriors with a uniform prior
+R <- calc_post(d_new$correct[d_new$teacher == "R"], d_new$questions[d_new$teacher == "R"])
+K <- calc_post(d_new$correct[d_new$teacher == "K"], d_new$questions[d_new$teacher == "K"])
+J <- calc_post(d_new$correct[d_new$teacher == "J"], d_new$questions[d_new$teacher == "J"])
+M <- calc_post(d_new$correct[d_new$teacher == "M"], d_new$questions[d_new$teacher == "M"])
+
+# Looking at the max values of the teachers' posterior distributions.
+which.max(R$posterior)/1000*100 # 50%
+which.max(K$posterior)/1000*100 # 100%
+which.max(J$posterior)/1000*100 # 80.8%
+which.max(M$posterior)/1000*100 # 50%
+
+# Computing posteriors with a normal prior
+R <- gaus_calc_post(d_new$correct[d_new$teacher == "R"], d_new$questions[d_new$teacher == "R"], 0.8, 0.2)
+K <- gaus_calc_post(d_new$correct[d_new$teacher == "K"], d_new$questions[d_new$teacher == "K"], 0.8, 0.2)
+J <- gaus_calc_post(d_new$correct[d_new$teacher == "J"], d_new$questions[d_new$teacher == "J"], 0.8, 0.2)
+M <- gaus_calc_post(d_new$correct[d_new$teacher == "M"], d_new$questions[d_new$teacher == "M"], 0.8, 0.2)
+
+# Looking at the max values of the teachers' posterior distributions.
+which.max(R$posterior)/1000*100 # 50.4%
+which.max(K$posterior)/1000*100 # 100%
+which.max(J$posterior)/1000*100 # 80.8%
+which.max(M$posterior)/1000*100 # 50.1%
+
+# Plotting the results
+plot_results(R$p_grid, R$prior, R$likelihood, R$posterior, "Riccardo")
+plot_results(K$p_grid, K$prior, K$likelihood, K$posterior, "Kristian")
+plot_results(J$p_grid, J$prior, J$likelihood, J$posterior, "Josh")
+plot_results(M$p_grid, M$prior, M$likelihood, M$posterior, "Mikkel")
+
+```
+Now, there is only a minimal difference when it comes to the most probable amount of CogSci knowlegde, the teachers have. However, it is clear when looking at the plots that this bigger volume of data has a big impact on the precision, that is the certainty, of the different probabilities. Thus, the evidence/data weighs more, and makes the prior have a smaller influence on the data.
+
+
+5. Imagine you're a skeptic and think your teachers do not know anything about CogSci, given the content of their classes. How would you operationalize that belief?
+```{r}
+# To operationalise the belief that my teachers do not know anything about CogSci, I set a normal prior with the mean of 0.5 and a standard deviation of 0.1. Thus, chance level is the most probable.
+R <- gaus_calc_post(d_new$correct[d_new$teacher == "R"], d_new$questions[d_new$teacher == "R"], 0.5, 0.1)
+K <- gaus_calc_post(d_new$correct[d_new$teacher == "K"], d_new$questions[d_new$teacher == "K"], 0.5, 0.1)
+J <- gaus_calc_post(d_new$correct[d_new$teacher == "J"], d_new$questions[d_new$teacher == "J"], 0.5, 0.1)
+M <- gaus_calc_post(d_new$correct[d_new$teacher == "M"], d_new$questions[d_new$teacher == "M"], 0.5, 0.1)
+
+# Plotting the results
+plot_results(R$p_grid, R$prior, R$likelihood, R$posterior, "Riccardo")
+plot_results(K$p_grid, K$prior, K$likelihood, K$posterior, "Kristian")
+plot_results(J$p_grid, J$prior, J$likelihood, J$posterior, "Josh")
+plot_results(M$p_grid, M$prior, M$likelihood, M$posterior, "Mikkel")
+
+```
+
+
+6. Optional question: Can you estimate the difference between Riccardo's estimated knowledge and that of each of the other teachers? Would you deem it credible (that is, would you believe that it is actually different)?
+
+7. Bonus knowledge: all the stuff we have done can be implemented in a lme4-like fashion using the brms package. Here is an example.
+```{r}
+library(brms)
+
+# d <- data.frame(
+#   Correct=c(3,2,160,66),
+#   Questions=c(6,2,198,132),
+#   Teacher=c("RF","KT","JS","MW"))
+
+# Model sampling only from the prior (for checking the predictions your prior leads to)
+FlatModel_priorCheck <- brm(correct|trials(questions) ~ 1, 
+                 data = subset(d, teacher=="R"),
+                 prior = prior("uniform(0,1)", class = "Intercept"),
+                 family = binomial,
+                 sample_prior = "only") # here we tell the model to ignore the data
+
+# Plotting the predictions of the model (prior only) against the actual data
+pp_check(FlatModel_priorCheck, nsamples = 100)
+
+# Model sampling by combining prior and likelihood
+FlatModel <- brm(Correct|trials(Questions) ~ 1, 
+                 data = subset(d, Teacher=="RF"),
+                 prior = prior("uniform(0,1)", class = "Intercept"),
+                 family = binomial,
+                 sample_prior = T)
+# Plotting the predictions of the model (prior + likelihood) against the actual data
+pp_check(FlatModel, nsamples = 100)
+
+# plotting the posteriors and the sampling process
+plot(FlatModel)
+
+
+PositiveModel_priorCheck <- brm(Correct|trials(Questions) ~ 1,
+                     data = subset(d, Teacher=="RF"),
+                     prior = prior("normal(0.8,0.2)", 
+                                   class = "Intercept"),
+                     family=binomial,
+                     sample_prior = "only")
+pp_check(PositiveModel_priorCheck, nsamples = 100)
+
+PositiveModel <- brm(Correct|trials(Questions) ~ 1,
+                     data = subset(d, Teacher=="RF"),
+                     prior = prior("normal(0.8,0.2)", 
+                                   class = "Intercept"),
+                     family=binomial,
+                     sample_prior = T)
+pp_check(PositiveModel, nsamples = 100)
+plot(PositiveModel)
+
+SkepticalModel_priorCheck <- brm(Correct|trials(Questions) ~ 1, 
+                      data = subset(d, Teacher=="RF"),
+                      prior=prior("normal(0.5,0.01)", class = "Intercept"),
+                      family=binomial,
+                      sample_prior = "only")
+pp_check(SkepticalModel_priorCheck, nsamples = 100)
+
+SkepticalModel <- brm(Correct|trials(Questions) ~ 1, 
+                      data = subset(d, Teacher=="RF"),
+                      prior = prior("normal(0.5,0.01)", class = "Intercept"),
+                      family = binomial,
+                      sample_prior = T)
+pp_check(SkepticalModel, nsamples = 100)
+plot(SkepticalModel)
+```
+
+If you dare, try to tweak the data and model to test two hypotheses:
+- Is Kristian different from Josh?
+- Is Josh different from chance?
+
+### Second part: Focusing on predictions
+
+Last year you assessed the teachers (darned time runs quick!). Now you want to re-test them and assess whether your models are producing reliable predictions. In Methods 3 we learned how to do machine-learning style assessment of predictions (e.g. rmse on testing datasets). Bayesian stats makes things a bit more complicated. So we'll try out how that works. N.B. You can choose which prior to use for the analysis of last year's data.
+
+Questions to be answered (but see guidance below):
+1- Write a paragraph discussing how assessment of prediction performance is different in Bayesian vs. frequentist models
+```{r}
+# In frequentist models, one can compare two values using e.g. a t-test to see whether these two values are significantly different from each other. If they are this, the "prediction"/first model is not good for describing the next model. One can use cross-validation and root mean of squared errors to quantify this as well.
+# In Bayesian models one can compare on different parameters (se mine noter i bunden)
+```
+
+2- Provide at least one plot and one written line discussing prediction errors for each of the teachers.
+```{r}
+# Difference in error (error distributions - post_2 - post_1)
+# sum(abs(post_2-post_1)) plot this shit
+```
+
+
+This is the old data:
+- Riccardo: 3 correct answers out of 6 questions
+- Kristian: 2 correct answers out of 2 questions (then he gets bored)
+- Josh: 160 correct answers out of 198 questions (Josh never gets bored)
+- Mikkel: 66 correct answers out of 132 questions
+
+This is the new data:
+- Riccardo: 9 correct answers out of 10 questions (then he freaks out about teaching preparation and leaves)
+- Kristian: 8 correct answers out of 12 questions
+- Josh: 148 correct answers out of 172 questions (again, Josh never gets bored)
+- Mikkel: 34 correct answers out of 65 questions
+```{r}
+# New data
+d_new_new <- tibble(
+  teacher = c("R","K","J","M"),
+  correct = c(9,8,148,34),
+  questions = c(10,12,172,65)
+  )
+```
+
+
+Guidance Tips
+
+1. There are at least two ways of assessing predictions.
+2. Last year's results are this year's expectations.
+3. Are the parameter estimates changing? (way 1)
+4. How does the new data look in last year's predictive posterior? (way 2)
+
+# SAMPLING!?
+
+
+### CLASS
+How do I know if Riccardo has become smarter?
+- Frequentist: t-test comparing then and now - reject or support the null-hypothesis.
+- Bayesian: Posterior distribution from first test, use as prior for second test. Or compare the two posteriors. Look at the overlap of the distributions. How to quantify this? How much probability mass do they share (Scaled on the same scale). Is the new mean within a certain interval of the first posterior distribution (is it predicted by it?). MAP can also be compared (similar to rmse in cross-validation - prediction vs. actual data). Subtracting the two MAPs (post_1 MAP from post_2 MAP) --> distribution of errors. Saying if it is likely that the previous model underestimated his knowledge. And see how much it is likely that the model actually fits.
+If the model is perfect, how would we expect it to look? If errors are normally distributed around 0, it seems to be a relatively good fit - the errors are equally distributed. Of course a better model, if the error is very precise, and not spread.
+Last years posterior --> this years prior. How does this change our knowledge?
+Kenneth recommends: 1. Difference in error. 4. LAst posterior this years prior (report via plots and interpretation of the plots). NOT: 2. Difference in MAP score (only good if data is normally distributed?). NOT: 3. Compare HDPI.
+
+```{r}
+## Creating a dataframe with all the old post probs
+teachers <- data.frame(
+  Correct=c(3,2,160,66),
+  Questions=c(6,2,198,132),
+  Teacher=c("RF","KT","JS","MW"))
+
+teachersnew <- data.frame(
+  Correct=c(9, 8, 148, 34),
+  Questions=c(10, 12, 172, 65),
+  Teacher=c("RF","KT","JS","MW"))
+
+postprobdf <- function(correct, questions, mean, sd, teacher){
+  #browser()
+  library(rethinking)
+  p_load(grid)
+  p_grid <- seq(from = 0 , to = 1 , length.out = 1e4+1) #We choose from 0 to 1 to test all probabilities between 0 and 1.
+
+  prior <- dnorm(p_grid, mean, sd)
+
+  likelihood <- dbinom(correct , size = questions , prob = p_grid)
+
+  unstd_post <- prior * likelihood
+
+  post <- unstd_post/sum(unstd_post)
+  
+  est <- p_grid[which.max(post)]
+  
+  print(paste("This is the estimate of", teacher, est))
+  
+  prob <- sum(post[p_grid > 0.5])
+  
+  d <- data.frame(grid = p_grid, posterior = post, prior = prior, likelihood = likelihood, Teacher = teacher)
+  
+  return(d)
+}
+
+m <- 0.8
+sd <- 0.2
+olddfprobs <- data.frame()
+for (i in 1:length(teachersnew$Correct)) {
+  c <- teachers$Correct[i]
+  q <- teachers$Questions[i]
+  t <- teachers$Teacher[i]
+  olddfprobs <- rbind(olddfprobs, postprobdf(c, q, m, sd, t))
+}
+
+#Below you see that the estimates are as following: 
+#[1] "This is the estimate of RF 0.6463"
+#[1] "This is the estimate of KT 0.8899"
+#[1] "This is the estimate of JS 0.8079"
+#[1] "This is the estimate of MW 0.5136"
+
+
+
+## Creating posterior probabilities with last years posterior as prior
+thisyear <- function(correct, questions, prior, mean, sd, teacher){
+  #browser()
+  library(rethinking)
+  p_load(grid)
+  p_grid <- seq(from = 0 , to = 1 , length.out = 1e4+1) #We choose from 0 to 1 to test all probabilities between 0 and 1.
+
+  likelihood <- dbinom(correct, questions , prob = p_grid)
+  
+  prior <- prior
+
+  unstd_post <- prior * likelihood
+
+  post <- unstd_post/sum(unstd_post)
+  
+  est <- p_grid[which.max(post)]
+  
+  print(paste("This is the estimate of", teacher, est))
+  
+  prob <- sum(post[p_grid > 0.5])
+  
+  d <- data.frame(grid = p_grid, posterior = post, prior = prior, likelihood = likelihood, Teacher = teacher)
+
+  return(d)
+}
+
+m <- 0.8
+sd <- 0.2
+newdfprobs <- data.frame()
+for (t in teachersnew$Teacher) {
+  c <- teachersnew[teachersnew$Teacher == t,]$Correct
+  q <- teachersnew[teachersnew$Teacher == t,]$Questions
+  prior <- olddfprobs[olddfprobs$Teacher == t,]$posterior
+  newdfprobs <- rbind(newdfprobs, thisyear(c, q, prior, m, sd, t))
+}
+# The point estimates for the teachers' knowledge last year was the following: RF = 0.6463, KT = 0.8899, JS = 0.8079, MW = 0.5136. This years estimates have changed to the following: RF = 0.7611, KT = 0.7364, JS = 0.8321, MW = 0.5166. AND THEN DISCUSS WHY THIS IS...
+```
+```{r}
+# Plotting the new prior (last year's posterior) against this years posterior for each teacher
+ggplot(newdfprobs) +
+  geom_point(aes(grid, prior), colour = "blue", size = 0.2) +
+  geom_point(aes(grid, posterior), colour = "red", size = 0.2) +
+  facet_wrap(~newdfprobs$Teacher)
+
+# Showing that for especially JS and MW, last year's posterior (this year's prior) is a good predictor for this year's posterior. For RF one would have predicted less knowledge than found in this year's posterior, while the contrary is the case for KT, for who this year's posterior (based on last year) is lower. Thus, the knowledge of RF would be underestimated based on last year, while the knowledge of KT would be overestimated. The CogSci knowledge of JS and MW stays around the same.
+
+```
+
+

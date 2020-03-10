@@ -7,6 +7,8 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(pacman)
+p_load(tidyverse)
 ```
 
 ## In this assignment we learn how to assess rates from a binomial distribution, using the case of assessing your teachers' knowledge of CogSci
@@ -27,13 +29,40 @@ This is the data:
 - Kristian: 2 correct answers out of 2 questions (then he gets bored)
 - Josh: 160 correct answers out of 198 questions (Josh never gets bored)
 - Mikkel: 66 correct answers out of 132 questions
+```{r}
+# Putting the data into a tibble
+d <- tibble(
+  teacher = c("R","K","J","M"),
+  correct = c(3,2,160,66),
+  questions = c(6,2,198,132)
+  )
+```
+
 
 Questions:
 
 1. What's Riccardo's estimated knowledge of CogSci? What is the probability he knows more than chance (0.5) [try figuring this out. if you can't peek into chapters 3.1 and 3.2 and/or the slides]?
 - First implement a grid approximation (hint check paragraph 2.4.1!) with a uniform prior, calculate the posterior and plot the results
 ```{r}
-# Riccardo
+# Making a function which calculates the posterior with uniform prior
+calc_post <- function(correct, questions){
+  p_grid <- seq(from = 0, to = 1, length.out = 1000) # Defining grid
+  bin_size <- abs(p_grid[1] - p_grid[2]) # Calculating bin size in grid
+  prior <- rep(1, 1000) # Uniform prior
+  likelihood <- dbinom(correct, size = questions, prob = p_grid) # Computing likelihood
+  unstd_posterior <- likelihood * prior # Computing unstandardised posterior
+  posterior <- unstd_posterior / sum(unstd_posterior * bin_size) # Standardising posterior
+  return(list(posterior = posterior, 
+              likelihood = likelihood,
+              p_grid = p_grid))
+}
+
+# Applying the function to Riccardo - calculating his posteriors
+calc_post(d$correct, d$questions)
+
+
+
+# Making a function which plots the results
 
 # Defining grid with a uniform prior
 p_grid <- seq(from = 0, to = 1, length.out = 100)
@@ -260,7 +289,16 @@ Last year you assessed the teachers (darned time runs quick!). Now you want to r
 
 Questions to be answered (but see guidance below):
 1- Write a paragraph discussing how assessment of prediction performance is different in Bayesian vs. frequentist models
+```{r}
+# In frequentist models, one can compare two values using e.g. a t-test to see whether these two values are significantly different from each other. If they are this, the "prediction"/first model is not good for describing the next model. One can use cross-validation and root mean of squared errors to quantify this as well.
+```
+
 2- Provide at least one plot and one written line discussing prediction errors for each of the teachers.
+```{r}
+# Difference in error (error distributions - post_2 - post_1)
+# sum(abs(post_2-post_1)) plot this shit
+```
+
 
 This is the old data:
 - Riccardo: 3 correct answers out of 6 questions
